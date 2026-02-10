@@ -1,0 +1,71 @@
+load(
+    "library",
+    "close_integrated_pr",
+    "expose_common_trailers",
+    "redact_message_tagged",
+)
+
+OSS_ONLY_PATHS = [
+    ".gitignore",
+    ".github/**",
+]
+
+default_committer = "jae-copybara-test[bot] <259964489+jae-copybara-test[bot]@users.noreply.github.com>"
+github_pr_body_template = """Originally opened at ${GITHUB_PR_URL}
+Submitted by @${GITHUB_PR_USER}
+
+---
+${GITHUB_PR_BODY}"""
+
+core.workflow(
+    name = "push",
+    description = "Sync changes back to the sync-test-public repo.",
+    origin = git.github_origin(
+        url = "https://github.com/jbellerb/sync-test-internal",
+        ref = "main",
+        partial_fetch = True,
+    ),
+    destination = git.github_destination(
+        url = "https://github.com/jbellerb/sync-test-public",
+        push = "main",
+        integrates = [git.integrate(strategy = "INCLUDE_FILES")],
+    ),
+    origin_files = glob(["docs/**"]),
+    destination_files = glob(["**"], exclude = OSS_ONLY_PATHS),
+    mode = "ITERATIVE",
+    authoring = authoring.pass_thru(default_committer),
+    transformations = [
+        metadata.restore_author("ORIGINAL_AUTHOR", search_all_changes = True),
+        metadata.remove_label("COPYBARA_INTEGRATE_REVIEW"),
+        close_integrated_pr(),
+        redact_message_tagged(),
+        expose_common_trailers(),
+    ],
+)
+
+core.workflow(
+    name = "pr",
+    description = "Duplicate pull requests to the sync-test repo.",
+    origin = git.github_pr_origin(
+        url = "https://github.com/jbellerb/sync-test-public",
+        branch = "main",
+    ),
+    destination = git.github_pr_destination(
+        url = "https://github.com/jbellerb/sync-test-internal",
+        destination_ref = "main",
+        partial_fetch = True,
+        integrates = [],
+        pr_branch = "copybara/sync-test-public-${CONTEXT_REFERENCE}",
+        title = "[OSS/sync-test-public] ${GITHUB_PR_TITLE}",
+        body = github_pr_body_template,
+    ),
+    origin_files = glob(["**"], exclude = OSS_ONLY_PATHS),
+    destination_files = glob(["docs/**"]),
+    mode = "CHANGE_REQUEST",
+    authoring = authoring.pass_thru(default_committer),
+    set_rev_id = False,
+    transformations = [
+        metadata.save_author("ORIGINAL_AUTHOR"),
+        metadata.expose_label("COPYBARA_INTEGRATE_REVIEW"),
+    ],
+)

@@ -1,0 +1,90 @@
+_MAX_ITERATIONS = 20
+
+_COMMON_TRAILERS = [
+    "Co-Authored-By",
+    "Reviewed-By",
+    "Signed-Off-By",
+]
+
+def _split_git_message(message):
+    title, _, body = message.strip("\n").partition("\n")
+
+    label_re = re2.compile(
+        # LABEL=label
+        # Trailer: also a label
+        "(?:^\n|\n\n)((?:[-0-9A-Z_a-z]+(?:=.*|: .*(?:\n[ \t]+.*)*)\n{0,2})+)$",
+    )
+    matcher = label_re.matcher(body)
+
+    labels = ""
+    if matcher.find():
+        body, labels = body[:matcher.start()], body[matcher.start(1):]
+    return (title, body, labels)
+
+def _close_integrated_pr_impl(ctx):
+    label = ctx.find_label(ctx.params["label"])
+    if label:
+        _, _, number = label[:label.index(" ")].rpartition("/")
+        title, body, labels = _split_git_message(ctx.message)
+        body += "\n\nCloses #{}".format(number)
+
+        marker_re = re2.compile("^(.*) \\(#\\d+\\)$")
+        matcher = marker_re.matcher(title)
+        if matcher.matches():
+            title = "{} (#{})".format(matcher.group(1), number)
+
+        ctx.set_message("\n\n".join([title, body, labels]))
+
+# close_integrated_pr adds a "Closes #n" line if the commit integrates a PR.
+def close_integrated_pr(label = "COPYBARA_INTEGRATE_REVIEW"):
+    return core.dynamic_transform(
+        impl = _close_integrated_pr_impl,
+        params = {"label": label},
+    )
+
+# expose_common_trailers exposes common trailers like "Co-Authored-By".
+def expose_common_trailers():
+    return core.transform([
+        metadata.expose_label(t, separator = ": ")
+        for t in _COMMON_TRAILERS
+    ])
+
+def _redact_message_tagged_impl(ctx):
+    # skip redaction if this is a public PR
+    if ctx.find_label(ctx.params["integrate_label"]):
+        return
+
+    title, body, labels = _split_git_message(ctx.message)
+
+    tag_re = re2.compile(
+        "<{}>((?:\n|.)*?)</{}>".format(ctx.params["tag"], ctx.params["tag"]),
+    )
+    matcher = tag_re.matcher(body)
+
+    message = [title]
+    start = 0
+    for _ in range(_MAX_ITERATIONS):
+        if matcher.find(start):
+            if body.find("\n\n", start, matcher.start()) == -1:
+                # join with the previous line
+                message[-1] += " " + matcher.group(1)
+            else:
+                # create a new paragraph
+                message.append(matcher.group(1))
+            start = matcher.end()
+        else:
+            break
+
+    if labels != "":
+        message.append(labels)
+    ctx.set_message("\n\n".join([p.strip("\n") for p in message]))
+
+# redact_message_tagged redacts all body text outside of the <tag></tag>.
+#
+# The spacing between public paragraphs is re-normalized. If a paragraph
+# contains multiple tagged segments, they are appended with a space.
+def redact_message_tagged(tag = "public", integrate_label = "COPYBARA_INTEGRATE_REVIEW"):
+    return core.dynamic_transform(
+        impl = _redact_message_tagged_impl,
+        params = {"tag": tag, "integrate_label": integrate_label},
+    )
