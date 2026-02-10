@@ -33,7 +33,7 @@ def _close_integrated_pr_impl(ctx):
     if matcher.matches():
         if label:
             title = "{} (#{})".format(matcher.group(1), number)
-        if else:
+        else:
             title = matcher.group(1)
 
     ctx.set_message("\n\n".join([title, body, labels]))
