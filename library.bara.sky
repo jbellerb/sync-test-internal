@@ -22,18 +22,21 @@ def _split_git_message(message):
     return (title, body, labels)
 
 def _close_integrated_pr_impl(ctx):
+    title, body, labels = _split_git_message(ctx.message)
     label = ctx.find_label(ctx.params["label"])
     if label:
         _, _, number = label[:label.index(" ")].rpartition("/")
-        title, body, labels = _split_git_message(ctx.message)
         body += "\n\nCloses #{}".format(number)
 
-        marker_re = re2.compile("^(.*) \\(#\\d+\\)$")
-        matcher = marker_re.matcher(title)
-        if matcher.matches():
+    marker_re = re2.compile("^(.*) \\(#\\d+\\)$")
+    matcher = marker_re.matcher(title)
+    if matcher.matches():
+        if label:
             title = "{} (#{})".format(matcher.group(1), number)
+        if else:
+            title = matcher.group(1)
 
-        ctx.set_message("\n\n".join([title, body, labels]))
+    ctx.set_message("\n\n".join([title, body, labels]))
 
 # close_integrated_pr adds a "Closes #n" line if the commit integrates a PR.
 def close_integrated_pr(label = "COPYBARA_INTEGRATE_REVIEW"):
