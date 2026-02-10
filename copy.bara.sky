@@ -66,6 +66,7 @@ core.workflow(
     authoring = authoring.pass_thru(default_committer),
     set_rev_id = False,
     transformations = [
+        core.move("", "docs"),
         metadata.save_author("ORIGINAL_AUTHOR"),
         metadata.expose_label("COPYBARA_INTEGRATE_REVIEW"),
     ],
